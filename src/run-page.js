@@ -12,6 +12,8 @@
 //     levels: [{ n: 1, label: 'Level 1' }, …],
 //     image: (n) => `01.png`,                    // the map of level n
 //     field: { w: 256, h: 176 },                 // the game's frame on the map, in map pixels
+//     zoom: 'fitw',                              // (optional) the zoom it opens with: a button's
+//                                                // data-z — 0.25 0.5 1 2 fitw fith; 1 if not given
 //     run: adapter,                              // below
 //     trail: { url, label, title, shift },       // the run's path: { levels: { n: { segments, frames } } }
 //     runTitle, soundTitle, musicTitle, effectsTitle,   // tooltips of the run bar
@@ -382,5 +384,7 @@ ${cfg.headerHtml ?? ''}
   };
   addEventListener('hashchange', () => { const n = fromHash(); if (n) choose(n); });
   pick(fromHash() ?? page.cur);
+  // The zoom it opens with, as if its button were pressed (a fit is worked out again once the map loads).
+  if (cfg.zoom) document.querySelector(`[data-z="${cfg.zoom}"]`)?.click();
   return page;
 }
