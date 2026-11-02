@@ -122,7 +122,7 @@ ${cfg.headerHtml ?? ''}
   st.addEventListener('mousemove', (e) => { const r = st.getBoundingClientRect(); cfg.onMouse?.(Math.floor((e.clientX - r.left) / page.z), Math.floor((e.clientY - r.top) / page.z)); });
 
   // The run's path (cfg.trail.url), fetched when first shown. While the run plays, only the way
-  // still ahead of the player. `shift`: what a point's frame is ahead of the run's frame numbers.
+  // still ahead of the player. `shift`: how far a point's frame number runs ahead of the run's.
   let TRAIL = null;
   async function showTrail() {
     if (!cfg.trail) return;
@@ -134,8 +134,9 @@ ${cfg.headerHtml ?? ''}
     svg.style.width = W * page.z + 'px';
     svg.style.height = H * page.z + 'px';
     n.textContent = T ? `(${(T.frames / HZ).toFixed(0)} s)` : '(none)';
-    const shift = cfg.trail.shift ?? 0;
-    const ahead = (sg) => (data && frame >= 0 && onLevel() ? sg.filter((p) => p[2] - shift >= frame) : sg);
+    // window.takeFrame: the last frame drawn on a level (unset before the run is first played).
+    const shift = cfg.trail.shift ?? 0, tf = window.takeFrame;
+    const ahead = (sg) => (tf == null ? sg : sg.filter((p) => p[2] - shift >= tf));
     svg.innerHTML = T ? T.segments.map(ahead).filter((sg) => sg.length > 1).map((sg) => `<polyline points="${sg.map((p) => p[0] + ',' + p[1]).join(' ')}"/>`).join('') : '';
   }
   if (cfg.trail) $('trailBox').onchange = showTrail;
