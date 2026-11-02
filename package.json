@@ -1,0 +1,8 @@
+{
+  "name": "@xromdev/maps-run",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The page around a game's level maps with a run played over them: header, zoom, run bar, full screen, sound with music and effects apart.",
+  "type": "module",
+  "main": "./src/run-page.js"
+}
