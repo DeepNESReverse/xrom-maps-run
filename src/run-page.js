@@ -374,6 +374,13 @@ ${cfg.headerHtml ?? ''}
     ui.play.click();
   });
 
-  pick(page.cur);
+  // `#level=5` in the address opens on that level, and changing it moves there (the site's page
+  // links each level's map to its place in the player this way).
+  const fromHash = () => {
+    const n = Number(/level=(\d+)/.exec(location.hash)?.[1]);
+    return cfg.levels.some((l) => l.n === n) ? n : null;
+  };
+  addEventListener('hashchange', () => { const n = fromHash(); if (n) choose(n); });
+  pick(fromHash() ?? page.cur);
   return page;
 }
