@@ -56,7 +56,8 @@ html:fullscreen.idle header,html:fullscreen.idle #fsBtn{opacity:0}html:fullscree
 #stage img{display:block;image-rendering:pixelated;position:absolute;left:0;top:0}
 #live{position:absolute;image-rendering:pixelated;pointer-events:none;outline:2px solid #fff8;box-shadow:0 0 12px #000;display:none}
 #trail{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
-#trail polyline{fill:none;stroke:#b48cff;stroke-width:2.5;stroke-linejoin:round;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 1px #000)}
+#trail polyline{fill:none;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+#trail .shade{stroke:#000;stroke-opacity:.6;stroke-width:4.5}#trail .line{stroke:#b48cff;stroke-width:2.5}
 #pos{font-variant-numeric:tabular-nums;color:#aaa}
 .legend{color:#888}
 `;
@@ -123,21 +124,59 @@ ${cfg.headerHtml ?? ''}
 
   // The run's path (cfg.trail.url), fetched when first shown. While the run plays, only the way
   // still ahead of the player. `shift`: how far a point's frame number runs ahead of the run's.
-  let TRAIL = null;
+  //
+  // The path is built once per level as short pieces (PIECE points each, every piece sharing its
+  // last point with the next): as the run goes, the pieces behind the player are hidden and only
+  // the piece he is on is redrawn, so the browser repaints a few small boxes, not a path as big as
+  // the level. Its shadow is a wider dark line under it, not a filter. Without a GPU (Windows XP)
+  // a drop-shadow over the whole path, redrawn every 4 frames, took more than a core at 2×
+  // (bench/bench.mjs: raster 1 297 → 57 ms a second with the path hidden).
+  const PIECE = 24;
+  let TRAIL = null, builtFor = null, pieces = [];
+  const SVG = 'http://www.w3.org/2000/svg';
+  const pointsOf = (pts) => pts.map((p) => p[0] + ',' + p[1]).join(' ');
+  function buildTrail(svg, T) {
+    svg.textContent = '';
+    pieces = [];
+    for (const sg of T?.segments ?? []) {
+      for (let i = 0; i < sg.length - 1; i += PIECE) {
+        const pts = sg.slice(i, i + PIECE + 1);
+        const g = document.createElementNS(SVG, 'g');
+        const shade = document.createElementNS(SVG, 'polyline'), line = document.createElementNS(SVG, 'polyline');
+        shade.setAttribute('class', 'shade');
+        line.setAttribute('class', 'line');
+        g.append(shade, line);
+        svg.append(g);
+        pieces.push({ pts, g, shade, line, from: -1 });
+      }
+    }
+  }
   async function showTrail() {
     if (!cfg.trail) return;
     const svg = $('trail'), box = $('trailBox'), n = $('trailN');
-    if (!box.checked) { svg.innerHTML = ''; n.textContent = ''; return; }
+    if (!box.checked) { svg.textContent = ''; builtFor = null; n.textContent = ''; return; }
     if (!TRAIL) { try { TRAIL = (await (await fetch(cfg.trail.url, { cache: 'no-store' })).json()).levels; } catch { TRAIL = {}; } }
     const T = TRAIL[page.cur], W = L.naturalWidth || 2048, H = L.naturalHeight || cfg.field.h;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.style.width = W * page.z + 'px';
     svg.style.height = H * page.z + 'px';
     n.textContent = T ? `(${(T.frames / HZ).toFixed(0)} s)` : '(none)';
+    if (builtFor !== page.cur) { buildTrail(svg, T); builtFor = page.cur; }
     // window.takeFrame: the last frame drawn on a level (unset before the run is first played).
     const shift = cfg.trail.shift ?? 0, tf = window.takeFrame;
-    const ahead = (sg) => (tf == null ? sg : sg.filter((p) => p[2] - shift >= tf));
-    svg.innerHTML = T ? T.segments.map(ahead).filter((sg) => sg.length > 1).map((sg) => `<polyline points="${sg.map((p) => p[0] + ',' + p[1]).join(' ')}"/>`).join('') : '';
+    for (const piece of pieces) {
+      // From which point the piece is still ahead (its points' frames rise); the DOM only when that changes.
+      let from = 0;
+      if (tf != null) while (from < piece.pts.length && piece.pts[from][2] - shift < tf) from++;
+      if (from > piece.pts.length - 2) from = piece.pts.length;
+      if (from === piece.from) continue;
+      piece.from = from;
+      if (from === piece.pts.length) { piece.g.setAttribute('display', 'none'); continue; }
+      piece.g.removeAttribute('display');
+      const pts = pointsOf(piece.pts.slice(from));
+      piece.shade.setAttribute('points', pts);
+      piece.line.setAttribute('points', pts);
+    }
   }
   if (cfg.trail) $('trailBox').onchange = showTrail;
 
@@ -201,25 +240,29 @@ ${cfg.headerHtml ?? ''}
     const at = run.draw(frame, ctx);
     const z = page.z;
     window.takeFrame = frame;
+    // Read the page first, then write: a read after a write makes the browser lay the page out
+    // again in the middle of the frame (the costliest script here on a slow machine).
+    const view = ui.follow.checked && { left: wrap.scrollLeft, top: wrap.scrollTop, width: wrap.clientWidth, height: wrap.clientHeight };
     if (frame - lastTrail >= 4 || frame < lastTrail) { lastTrail = frame; showTrail(); }
-    live.style.left = at.x * z + 'px';
-    live.style.top = at.y * z + 'px';
-    live.style.width = cfg.field.w * z + 'px';
-    live.style.height = cfg.field.h * z + 'px';
+    // The frame moves by a transform (no layout); its size changes only with the zoom.
+    if (liveZ !== z) { liveZ = z; live.style.left = '0px'; live.style.top = '0px'; live.style.width = cfg.field.w * z + 'px'; live.style.height = cfg.field.h * z + 'px'; }
+    live.style.transform = `translate(${at.x * z}px, ${at.y * z}px)`;
     live.style.display = 'block';
     run.onFrame?.(frame);
     // The slider runs over the level being played, its time from the level's first frame.
     if (ui.seek.min !== String(span[1]) || ui.seek.max !== String(span[2])) { ui.seek.min = String(span[1]); ui.seek.max = String(span[2]); }
     ui.seek.value = String(frame);
-    ui.label.textContent = `${word} ${n} · ${((frame - span[1]) / HZ).toFixed(1)} of ${((span[2] - span[1] + 1) / HZ).toFixed(0)} s`;
+    const text = `${word} ${n} · ${((frame - span[1]) / HZ).toFixed(1)} of ${((span[2] - span[1] + 1) / HZ).toFixed(0)} s`;
+    if (ui.label.textContent !== text) ui.label.textContent = text;
     // Keep the camera's field in view with room around it: on each axis the field stays inside the
     // middle of the window (a margin of 40 % of the space left over), the view easing after it rather
     // than jumping once the field has reached the edge. A seek or a new level: straight there.
-    if (ui.follow.checked) {
-      const x = follow(wrap.scrollLeft, wrap.clientWidth, at.x * z, cfg.field.w * z), y = follow(wrap.scrollTop, wrap.clientHeight, at.y * z, cfg.field.h * z);
-      if (x !== wrap.scrollLeft || y !== wrap.scrollTop) wrap.scrollTo(x, y);
+    if (view) {
+      const x = follow(view.left, view.width, at.x * z, cfg.field.w * z), y = follow(view.top, view.height, at.y * z, cfg.field.h * z);
+      if (Math.round(x) !== view.left || Math.round(y) !== view.top) wrap.scrollTo(x, y);
     }
   }
+  let liveZ = 0;
   /** The scroll on one axis: `at` now, `size` the window, the field from `from`, `span` long. */
   function follow(at, size, from, span) {
     const room = Math.max(0, size - span), margin = room * 0.4;
