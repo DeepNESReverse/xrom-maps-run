@@ -9,7 +9,7 @@
 //   import { mountRunPage } from '…/maps-run/src/run-page.js';
 //   const page = mountRunPage({
 //     title: 'Alien 3', levelWord: 'level',
-//     levels: [{ n: 1, label: 'Level 1' }, …],
+//     levels: [{ n: 1, label: 'Level 1' }, …],    // one level: no prev / list / next
 //     image: (n) => `01.png`,                    // the map of level n
 //     field: { w: 256, h: 176 },                 // the game's frame on the map, in map pixels
 //     zoom: 'fitw',                              // (optional) the zoom it opens with: a button's
@@ -46,7 +46,7 @@ const CSS = `
 :root{color-scheme:dark}body{margin:0;background:#111;color:#ddd;font:14px system-ui,sans-serif}
 header{position:sticky;top:0;background:#1b1b1b;padding:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:2;border-bottom:1px solid #333}
 button,select{background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit}button.on{background:#3d5a80;border-color:#5b7fb0}button:disabled{opacity:.4;cursor:default}
-#lvlNav{display:flex;gap:4px;align-items:center}
+#lvlNav{display:flex;gap:4px;align-items:center}#lvlNav[hidden]{display:none}
 #wrap{overflow:auto;height:calc(100vh - var(--head,50px))}
 /* Full screen: the map alone, the run's controls in a bar at the bottom that hides while the mouse rests */
 html:fullscreen #wrap{height:100vh}
@@ -75,7 +75,7 @@ export function mountRunPage(cfg) {
   document.body.insertAdjacentHTML(
     'afterbegin',
     `<header>
-<span id="lvlNav"><button id="prevLvl" title="The ${word} before">◀ prev</button><select id="lvl">${cfg.levels.map((l) => `<option value="${l.n}">${l.label}</option>`).join('')}</select><button id="nextLvl" title="The ${word} after">next ▶</button></span>
+<span id="lvlNav"${cfg.levels.length < 2 ? ' hidden' : ''}><button id="prevLvl" title="The ${word} before">◀ prev</button><select id="lvl">${cfg.levels.map((l) => `<option value="${l.n}">${l.label}</option>`).join('')}</select><button id="nextLvl" title="The ${word} after">next ▶</button></span>
 <span>Zoom:</span><button data-z="0.25">¼</button><button data-z="0.5">½</button><button data-z="1" class="on">1×</button><button data-z="2">2×</button><button data-z="fitw" title="The ${word}'s width in the window">fit width</button><button data-z="fith" title="The ${word}'s height in the window">fit height</button>
 <span id="tkBar" style="display:flex;gap:6px;align-items:center;border:1px solid #444;border-radius:6px;padding:2px 8px"${cfg.runTitle ? ` title="${cfg.runTitle}"` : ''}>
  <button id="tkPlay">▶</button>
