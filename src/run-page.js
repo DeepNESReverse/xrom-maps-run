@@ -61,8 +61,31 @@ html:fullscreen.idle header,html:fullscreen.idle #fsBtn{opacity:0}html:fullscree
 #trail polyline{fill:none;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
 #trail .shade{stroke:#000;stroke-opacity:.6;stroke-width:4.5}#trail .line{stroke:#b48cff;stroke-width:2.5}
 #pos{font-variant-numeric:tabular-nums;color:#aaa}
+/* A layer's switch as a round button with its icon (iconToggle): the box stays, hidden, for the code */
+label.tg{display:flex;gap:7px;align-items:center;cursor:pointer;position:relative;user-select:none}
+label.tg input{position:absolute;opacity:0;width:0;height:0;margin:0}
+label.tg .ic{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#1c2029;border:1px solid #3a4150;color:#7d8699;transition:background .15s,border-color .15s,box-shadow .15s,color .15s}
+label.tg .ic svg{width:18px;height:18px}label.tg .ic img{height:22px;image-rendering:pixelated;filter:grayscale(1) brightness(.7)}
+label.tg input:checked+.ic{background:color-mix(in srgb,var(--tg) 22%,#14161c);border-color:var(--tg);color:#fff;box-shadow:0 0 10px color-mix(in srgb,var(--tg) 55%,transparent)}
+label.tg input:checked+.ic img{filter:none}
+label.tg input:focus-visible+.ic{outline:2px solid #fff;outline-offset:2px}
+label.tg:hover .ic{border-color:var(--tg)}
 .legend{color:#888}
 `;
+
+// Icons for the switches every game has.
+export const ICONS = {
+  // A winding route to a pin: the run's path.
+  path: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h6a3 3 0 0 0 0-6H8a3 3 0 0 1 0-6h7a3 3 0 0 0 0-6h-1"/><circle cx="4" cy="20" r="1.8" fill="currentColor"/><path d="M21 13.5c0 2.6-3 5.5-3 5.5s-3-2.9-3-5.5a3 3 0 0 1 6 0z" fill="currentColor" stroke="none"/></svg>',
+};
+
+// A layer's switch: a round button with an icon, lit in the layer's colour while on. It is a
+// checkbox underneath (id, .checked, onchange), so the code switching the layer stays as it was.
+//   iconToggle({ id, icon, label, colour, title, count, checked })  — count: the id of a span after
+//   the label for a number ("(7)"), filled by the game.
+export function iconToggle({ id, icon, label: text, colour, title, count, checked = false }) {
+  return `<label class="tg" style="--tg:${colour}"${title ? ` title="${title}"` : ''}><input type="checkbox" id="${id}"${checked ? ' checked' : ''}><span class="ic">${icon}</span><span>${text}${count ? ` <span id="${count}" class="legend"></span>` : ''}</span></label>`;
+}
 
 const label = (id, title, inner) => `<label style="display:flex;gap:4px;align-items:center"${title ? ` title="${title}"` : ''}>${inner}</label>`;
 
@@ -86,7 +109,7 @@ export function mountRunPage(cfg) {
  ${label('', cfg.musicTitle, '<input type="checkbox" id="tkMusic" checked> music')}
  ${label('', cfg.effectsTitle, '<input type="checkbox" id="tkEffects" checked> effects')}
  <span id="tkLabel" class="legend"></span></span>
-${cfg.trail ? `<label style="display:flex;gap:6px;align-items:center;cursor:pointer"${cfg.trail.title ? ` title="${cfg.trail.title}"` : ''}><input type="checkbox" id="trailBox" checked> ${cfg.trail.label} <span id="trailN" class="legend"></span></label>` : ''}
+${cfg.trail ? iconToggle({ id: 'trailBox', icon: ICONS.path, label: cfg.trail.label, colour: '#b48cff', title: cfg.trail.title, count: 'trailN', checked: true }) : ''}
 ${cfg.headerHtml ?? ''}
 <span id="pos"></span>
 </header>
@@ -95,7 +118,7 @@ ${cfg.headerHtml ?? ''}
   );
   const $ = (id) => document.getElementById(id);
   const L = $('iLevel'), st = $('stage'), wrap = $('wrap'), lvl = $('lvl');
-  const page = { cur: cfg.levels[0].n, z: 1, pick, zoomed, $ };
+  const page = { cur: cfg.levels[0].n, z: 1, pick, zoomed, $, field: cfg.field };
 
   // ------------------------------------------------------------------ the map, zoom, full screen
 
@@ -137,19 +160,22 @@ ${cfg.headerHtml ?? ''}
   let TRAIL = null, builtFor = null, pieces = [];
   const SVG = 'http://www.w3.org/2000/svg';
   const pointsOf = (pts) => pts.map((p) => p[0] + ',' + p[1]).join(' ');
+  // Every shadow lies under every line: a piece's own shadow over the end of the piece before it
+  // cut the path into dashes at each join (seen in the short, where the path is wide).
   function buildTrail(svg, T) {
     svg.textContent = '';
     pieces = [];
+    const shades = document.createElementNS(SVG, 'g'), lines = document.createElementNS(SVG, 'g');
+    svg.append(shades, lines);
     for (const sg of T?.segments ?? []) {
       for (let i = 0; i < sg.length - 1; i += PIECE) {
         const pts = sg.slice(i, i + PIECE + 1);
-        const g = document.createElementNS(SVG, 'g');
         const shade = document.createElementNS(SVG, 'polyline'), line = document.createElementNS(SVG, 'polyline');
         shade.setAttribute('class', 'shade');
         line.setAttribute('class', 'line');
-        g.append(shade, line);
-        svg.append(g);
-        pieces.push({ pts, g, shade, line, from: -1 });
+        shades.append(shade);
+        lines.append(line);
+        pieces.push({ pts, shade, line, from: -1, shown: true });
       }
     }
   }
@@ -166,16 +192,24 @@ ${cfg.headerHtml ?? ''}
     if (builtFor !== page.cur) { buildTrail(svg, T); builtFor = page.cur; }
     // window.takeFrame: the last frame drawn on a level (unset before the run is first played).
     const shift = cfg.trail.shift ?? 0, tf = window.takeFrame;
+    // page.trailTo: the path ends at that frame (the short draws it out ahead of the player).
+    const upTo = page.trailTo ?? Infinity;
     for (const piece of pieces) {
       // From which point the piece is still ahead (its points' frames rise); the DOM only when that changes.
-      let from = 0;
+      let from = 0, to = piece.pts.length;
       if (tf != null) while (from < piece.pts.length && piece.pts[from][2] - shift < tf) from++;
-      if (from > piece.pts.length - 2) from = piece.pts.length;
-      if (from === piece.from) continue;
-      piece.from = from;
-      if (from === piece.pts.length) { piece.g.setAttribute('display', 'none'); continue; }
-      piece.g.removeAttribute('display');
-      const pts = pointsOf(piece.pts.slice(from));
+      if (upTo !== Infinity) { to = from; while (to < piece.pts.length && piece.pts[to][2] - shift <= upTo) to++; }
+      if (from > piece.pts.length - 2 || to - from < 2) from = to = piece.pts.length;
+      const key = from * 100000 + to;
+      if (key === piece.from) continue;
+      piece.from = key;
+      const shown = from !== piece.pts.length;
+      if (shown !== piece.shown) {
+        piece.shown = shown;
+        for (const el of [piece.shade, piece.line]) shown ? el.removeAttribute('display') : el.setAttribute('display', 'none');
+      }
+      if (!shown) continue;
+      const pts = pointsOf(piece.pts.slice(from, to));
       piece.shade.setAttribute('points', pts);
       piece.line.setAttribute('points', pts);
     }
@@ -240,6 +274,7 @@ ${cfg.headerHtml ?? ''}
     // The map follows the level the run is on.
     if (page.cur !== n) pick(n);
     const at = run.draw(frame, ctx);
+    page.at = at;
     const z = page.z;
     window.takeFrame = frame;
     // Read the page first, then write: a read after a write makes the browser lay the page out
@@ -383,8 +418,49 @@ ${cfg.headerHtml ?? ''}
     return cfg.levels.some((l) => l.n === n) ? n : null;
   };
   addEventListener('hashchange', () => { const n = fromHash(); if (n) choose(n); });
+  // What the vertical short (short.js) drives: the run a frame at a time, its sound, the path.
+  Object.assign(page, {
+    load: async () => { if (!data) await load(); },
+    seek,
+    /** The run on to frame f: applied frame by frame from where it stands, or sought anew. */
+    goTo(f, withSound) {
+      if (f < frame || f - frame > 600) { seek(f); return; }
+      while (frame < f) { run.apply(++frame); if (withSound) soundFrame(frame); }
+      draw();
+    },
+    frame: () => frame,
+    spans: () => spans,
+    showTrail,
+    startAudio,
+    /** The run's sound from frame `from`, `count` frames, as samples at `rate` (Float32, -1…1). */
+    renderSound(from, count, rate) {
+      const { Apu, OutputFilters, mixApu } = cfg.apu;
+      const chip = new Apu(rate, { memory: run.memory ?? (() => 0) }), filters = new OutputFilters(rate, false);
+      const k = Math.ceil(rate / HZ) + 2;
+      const lv = { pulse1: new Uint8Array(k), pulse2: new Uint8Array(k), triangle: new Uint8Array(k), noise: new Float64Array(k), dmc: new Uint8Array(k) };
+      const start = Math.max(0, from - 180);
+      for (const reg of [0x4017, 0x4015]) { const e = enables.filter(([g, a]) => g < start && a === reg).pop(); if (e) chip.write(reg, e[2]); }
+      const out = new Float32Array(Math.ceil((count / HZ) * rate) + k);
+      let debt = 0, n = 0;
+      for (let g = start; g < from + count; g++) {
+        writes(g, (a, v) => chip.write(a, v));
+        debt += rate / HZ;
+        const c = Math.floor(debt);
+        debt -= c;
+        chip.render(c, lv, 0);
+        for (let i = 0; i < c; i++) {
+          const y = 2.2 * filters.step(mixApu(lv.pulse1[i], lv.pulse2[i], lv.triangle[i], lv.noise[i], lv.dmc[i]));
+          if (g >= from && n < out.length) out[n++] = y;
+        }
+      }
+      return out.subarray(0, n);
+    },
+  });
   pick(fromHash() ?? page.cur);
   // The zoom it opens with, as if its button were pressed (a fit is worked out again once the map loads).
   if (cfg.zoom) document.querySelector(`[data-z="${cfg.zoom}"]`)?.click();
+  // `?short`: the page as a vertical promo (short.js, the game's cfg.short).
+  if (cfg.short && new URLSearchParams(location.search).has('short'))
+    import('./short.js').then((m) => m.mountShort(page, cfg.short));
   return page;
 }
