@@ -10,7 +10,9 @@
 //   const page = mountRunPage({
 //     title: 'Alien 3', levelWord: 'level',
 //     levels: [{ n: 1, label: 'Level 1' }, …],    // one level: no prev / list / next
-//     image: (n) => `01.png`,                    // the map of level n
+//     image: (n) => `01.png`,                    // the map of level n — or a level made of several
+//                                                // maps: { w, h, pieces: [{ src, x, y, w, h }] }, each
+//                                                // piece's top-left at x, y of the w × h level
 //     field: { w: 256, h: 176 },                 // the game's frame on the map, in map pixels
 //     zoom: 'fitw',                              // (optional) the zoom it opens with: a button's
 //                                                // data-z — 0.25 0.5 1 2 fitw fith; 1 if not given
@@ -194,17 +196,28 @@ ${cfg.run ? `<div id="poster"><div class="card"><button class="big" id="posterPl
   const $ = (id) => document.getElementById(id);
   const L = $('iLevel'), st = $('stage'), wrap = $('wrap'), lvl = $('lvl');
   const page = { cur: cfg.levels[0].n, z: 1, pick, zoomed, $, field: cfg.field };
+  // A level of several maps (cfg.image returning { w, h, pieces }): the pieces are images of their
+  // own beside the level's (hidden then), and the level's size is the one given.
+  let pieced = null;
+  const P = document.createElement('div');
+  P.id = 'pieces';
+  L.after(P);
+  const LW = () => (pieced ? pieced.w : L.naturalWidth), LH = () => (pieced ? pieced.h : L.naturalHeight);
 
   // ------------------------------------------------------------------ the map, zoom, full screen
 
-  function size() { st.style.width = L.naturalWidth * page.z + 'px'; st.style.height = L.naturalHeight * page.z + 'px'; L.style.width = L.naturalWidth * page.z + 'px'; }
+  function size() {
+    st.style.width = LW() * page.z + 'px'; st.style.height = LH() * page.z + 'px'; L.style.width = L.naturalWidth * page.z + 'px';
+    for (const im of P.children) Object.assign(im.style, { left: im.dataset.x * page.z + 'px', top: im.dataset.y * page.z + 'px', width: im.dataset.w * page.z + 'px' });
+  }
   // Zoom: a fixed scale, or "fit width" / "fit height" — the level's width or height in the window,
   // worked out again as the window, the level or full screen change.
   let fit = false;
-  const fitZoom = () => { const W = L.naturalWidth || 2048, H = L.naturalHeight || cfg.field.h; return fit === 'fith' ? (wrap.clientHeight - 2) / H : (wrap.clientWidth - 2) / W; };
+  const fitZoom = () => { const W = LW() || 2048, H = LH() || cfg.field.h; return fit === 'fith' ? (wrap.clientHeight - 2) / H : (wrap.clientWidth - 2) / W; };
   function zoomed() { size(); showTrail(); cfg.onZoom?.(); if (data && frame >= 0) draw(); showZoom(); }
-  function refit() { if (fit && L.naturalWidth) { const f = fitZoom(); if (f !== page.z) { page.z = f; zoomed(); } } }
-  L.onload = () => { if (fit) page.z = fitZoom(); size(); showTrail(); cfg.onZoom?.(); showZoom(); };
+  function refit() { if (fit && LW()) { const f = fitZoom(); if (f !== page.z) { page.z = f; zoomed(); } } }
+  const loaded = () => { if (fit) page.z = fitZoom(); size(); showTrail(); cfg.onZoom?.(); showZoom(); };
+  L.onload = loaded;
   document.querySelectorAll('[data-z]').forEach((b) => (b.onclick = () => {
     fit = b.dataset.z.startsWith('fit') && b.dataset.z;
     // A fit never scrolls across it: no bar for the pixel or two a rounding leaves over.
@@ -298,7 +311,7 @@ ${cfg.run ? `<div id="poster"><div class="card"><button class="big" id="posterPl
     const svg = $('trail'), box = $('trailBox'), n = $('trailN');
     if (!box.checked) { svg.textContent = ''; builtFor = null; n.textContent = ''; return; }
     await trailData();
-    const T = TRAIL[page.cur], W = L.naturalWidth || 2048, H = L.naturalHeight || cfg.field.h;
+    const T = TRAIL[page.cur], W = LW() || 2048, H = LH() || cfg.field.h;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.style.width = W * page.z + 'px';
     svg.style.height = H * page.z + 'px';
@@ -333,7 +346,25 @@ ${cfg.run ? `<div id="poster"><div class="card"><button class="big" id="posterPl
   function pick(n) {
     page.cur = n;
     lvl.value = String(n);
-    L.src = cfg.image(n);
+    const image = cfg.image(n);
+    P.textContent = '';
+    if (typeof image === 'string') {
+      pieced = null;
+      L.style.display = '';
+      L.src = image;
+    } else {
+      pieced = image;
+      L.removeAttribute('src');
+      L.style.display = 'none';
+      for (const pc of image.pieces) {
+        const im = document.createElement('img');
+        Object.assign(im.dataset, { x: pc.x, y: pc.y, w: pc.w });
+        im.alt = '';
+        im.src = pc.src;
+        P.append(im);
+      }
+      loaded();
+    }
     $('prevLvl').disabled = n <= cfg.levels[0].n;
     $('nextLvl').disabled = n >= cfg.levels[cfg.levels.length - 1].n;
     document.title = `${cfg.title} — ${word} ${n}`;
